@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  mindsync:
+    build: .
+    container_name: mindsync-app
+    ports:
+      - "8000:8000"  # Backend API
+      - "5173:5173"  # Frontend UI
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - ./vosk-model:/app/vosk-model
+      - ./meeting-summarizer-app/backend/uploads:/app/meeting-summarizer-app/backend/uploads
+    environment:
+      - PYTHONPATH=/app/meeting-summarizer-app/backend
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add Ollama service if you want to run it in Docker
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: mindsync-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
+  #   restart: unless-stopped
+
+# volumes:
+#   ollama_data:

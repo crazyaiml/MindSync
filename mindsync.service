@@ -1,0 +1,25 @@
+[Unit]
+Description=MindSync Meeting Summarizer
+After=network.target
+
+[Service]
+Type=forking
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/mindsync
+ExecStart=/opt/mindsync/start.sh
+ExecStop=/opt/mindsync/stop.sh
+Restart=always
+RestartSec=10
+
+# Environment variables
+Environment=PYTHONPATH=/opt/mindsync/meeting-summarizer-app/backend
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mindsync
+
+[Install]
+WantedBy=multi-user.target
