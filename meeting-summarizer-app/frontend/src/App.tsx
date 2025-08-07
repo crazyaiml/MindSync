@@ -72,6 +72,15 @@ function App() {
   const [selectedMeetingForTranscript, setSelectedMeetingForTranscript] = useState<string | null>(null)
   const [isAddingTranscript, setIsAddingTranscript] = useState(false)
   
+  // Meeting show page state
+  const [selectedMeetingForView, setSelectedMeetingForView] = useState<MeetingSummary | null>(null)
+  
+  // Text-based meeting creation state
+  const [textTitle, setTextTitle] = useState('')
+  const [textDescription, setTextDescription] = useState('')
+  const [textTranscript, setTextTranscript] = useState('')
+  const [isCreatingFromText, setIsCreatingFromText] = useState(false)
+  
   // Real-time assistant state
   const [isRealTimeMode, setIsRealTimeMode] = useState(false)
   const [realTimeTranscript, setRealTimeTranscript] = useState('')
@@ -103,6 +112,11 @@ function App() {
   // Check voice training status on app startup
   useEffect(() => {
     checkVoiceStatus()
+  }, [])
+
+  // Load meetings history on app startup
+  useEffect(() => {
+    fetchMeetingsHistory()
   }, [])
 
   const checkVoiceStatus = async () => {
@@ -1051,8 +1065,8 @@ function App() {
   }
 
   const viewMeeting = (meeting: MeetingSummary) => {
-    setMeetingSummary(meeting)
-    setShowHistory(false)
+    setSelectedMeetingForView(meeting)
+    setActiveTab('meeting-show')
   }
 
   // Create empty meeting
@@ -1135,6 +1149,50 @@ function App() {
       setError(err.response?.data?.detail || 'Failed to add transcript to meeting')
     } finally {
       setIsAddingTranscript(false)
+    }
+  }
+
+  // Create meeting from text transcript
+  const createMeetingFromText = async () => {
+    if (!textTitle.trim() || !textTranscript.trim()) {
+      setError('Please enter both a title and transcript')
+      return
+    }
+
+    setIsCreatingFromText(true)
+    setError('')
+    
+    try {
+      const response = await axios.post('http://127.0.0.1:8000/api/meetings/', {
+        title: textTitle.trim(),
+        transcription: textTranscript.trim(),
+        description: textDescription.trim() || '',
+        file_name: `text_meeting_${Date.now()}.txt`,
+        duration: null,
+        language: 'en'
+      })
+      
+      const newMeeting = response.data
+      
+      // Update meetings history
+      fetchMeetingsHistory()
+      
+      // Set as current meeting
+      setMeetingSummary(newMeeting)
+      
+      // Reset form
+      setTextTitle('')
+      setTextDescription('')
+      setTextTranscript('')
+      
+      // Switch to standard view to show the result
+      setActiveTab('standard')
+      
+    } catch (err: any) {
+      console.error('Error creating meeting from text:', err)
+      setError(err.response?.data?.detail || 'Failed to create meeting from text')
+    } finally {
+      setIsCreatingFromText(false)
     }
   }
 
@@ -1498,7 +1556,7 @@ function App() {
                       <h3 
                         className="meeting-title" 
                         title={meeting.title}
-                        onClick={() => startEditingTitle(meeting.id, meeting.title)}
+                        onClick={() => startEditingTitle(meeting.title, meeting.id)}
                       >
                         {meeting.title}
                         <Edit3 className="edit-icon" />
@@ -1546,6 +1604,13 @@ function App() {
                           <Square />
                         </button>
                       )}
+                      <button 
+                        className="action-btn view-btn"
+                        onClick={() => viewMeeting(meeting)}
+                        title="View Details"
+                      >
+                        <FileText />
+                      </button>
                       <button 
                         className="action-btn delete-btn"
                         onClick={() => deleteMeeting(meeting.id)}
@@ -1783,26 +1848,207 @@ function App() {
         <div className="mode-section">
           <div className="mode-header">
             <h2>📄 Add Transcript</h2>
-            <p>Upload an existing transcript or audio file</p>
+            <p>Create a meeting from text transcript</p>
           </div>
-          <div className="upload-options">
-            <div className="upload-area">
-              <div className="upload-content">
-                <Upload className="upload-icon" />
-                <h3>Upload Audio File</h3>
-                <p>Drag and drop an audio file or click to browse</p>
-                <input
-                  type="file"
-                  accept="audio/*"
-                  onChange={handleFileSelect}
-                  className="file-input"
-                  id="audio-upload"
-                />
-                <label htmlFor="audio-upload" className="upload-btn">
-                  <Upload />
-                  Choose File
-                </label>
+          
+          <div className="text-input-section">
+            <div className="input-group">
+              <label htmlFor="text-title">Meeting Title *</label>
+              <input
+                type="text"
+                id="text-title"
+                value={textTitle}
+                onChange={(e) => setTextTitle(e.target.value)}
+                placeholder="Enter meeting title"
+                className="text-input"
+              />
+            </div>
+            
+            <div className="input-group">
+              <label htmlFor="text-description">Description (Optional)</label>
+              <input
+                type="text"
+                id="text-description"
+                value={textDescription}
+                onChange={(e) => setTextDescription(e.target.value)}
+                placeholder="Enter meeting description"
+                className="text-input"
+              />
+            </div>
+            
+            <div className="input-group">
+              <label htmlFor="text-transcript">Transcript *</label>
+              <textarea
+                id="text-transcript"
+                value={textTranscript}
+                onChange={(e) => setTextTranscript(e.target.value)}
+                placeholder="Paste or type the meeting transcript here..."
+                className="text-area"
+                rows={12}
+              />
+            </div>
+            
+            <div className="form-actions">
+              <button
+                className="submit-btn"
+                onClick={createMeetingFromText}
+                disabled={isCreatingFromText || !textTitle.trim() || !textTranscript.trim()}
+              >
+                {isCreatingFromText ? (
+                  <>
+                    <Loader2 className="spinner" />
+                    Creating Meeting...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="btn-icon" />
+                    Create Meeting
+                  </>
+                )}
+              </button>
+              
+              <button
+                className="cancel-btn"
+                onClick={() => {
+                  setTextTitle('')
+                  setTextDescription('')
+                  setTextTranscript('')
+                  setActiveTab('standard')
+                }}
+                disabled={isCreatingFromText}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Meeting Show Page
+    if (activeTab === 'meeting-show' && selectedMeetingForView) {
+      const meeting = selectedMeetingForView
+      return (
+        <div className="mode-section">
+          <div className="mode-header">
+            <button 
+              className="back-btn"
+              onClick={() => setActiveTab('history')}
+            >
+              ← Back to History
+            </button>
+            <h2>📋 Meeting Details</h2>
+          </div>
+          
+          <div className="meeting-show-content">
+            <div className="meeting-show-header">
+              <h1 className="meeting-show-title">{meeting.title}</h1>
+              {meeting.description && (
+                <p className="meeting-show-description">{meeting.description}</p>
+              )}
+              <div className="meeting-show-meta">
+                <span className="meeting-show-date">
+                  Created: {new Date(meeting.created_at).toLocaleString()}
+                </span>
+                {meeting.updated_at && (
+                  <span className="meeting-show-date">
+                    Updated: {new Date(meeting.updated_at).toLocaleString()}
+                  </span>
+                )}
+                <span className={`meeting-show-status status-${meeting.status}`}>
+                  Status: {meeting.status}
+                </span>
               </div>
+            </div>
+
+            {meeting.transcript && (
+              <div className="meeting-show-section">
+                <h3>📝 Full Transcript</h3>
+                <div className="meeting-show-transcript">
+                  <pre>{meeting.transcript}</pre>
+                </div>
+              </div>
+            )}
+
+            {meeting.summary && (
+              <div className="meeting-show-section">
+                <h3>📊 Summary</h3>
+                <div className="meeting-show-summary">
+                  <p>{meeting.summary}</p>
+                </div>
+              </div>
+            )}
+
+            {meeting.key_points && meeting.key_points.length > 0 && (
+              <div className="meeting-show-section">
+                <h3>🔑 Key Points</h3>
+                <div className="meeting-show-list">
+                  <ul>
+                    {meeting.key_points.map((point, index) => (
+                      <li key={index}>{point}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {meeting.action_items && meeting.action_items.length > 0 && (
+              <div className="meeting-show-section">
+                <h3>✅ Action Items</h3>
+                <div className="meeting-show-list">
+                  <ul>
+                    {meeting.action_items.map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            <div className="meeting-show-section">
+              <h3>ℹ️ Meeting Information</h3>
+              <div className="meeting-show-details">
+                <div className="detail-row">
+                  <span className="detail-label">Duration:</span>
+                  <span className="detail-value">
+                    {meeting.duration ? `${Math.round(meeting.duration)}s` : 'N/A'}
+                  </span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Language:</span>
+                  <span className="detail-value">{meeting.language || 'N/A'}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">File:</span>
+                  <span className="detail-value">{meeting.file_name || 'N/A'}</span>
+                </div>
+                <div className="detail-row">
+                  <span className="detail-label">Meeting ID:</span>
+                  <span className="detail-value">{meeting.id}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="meeting-show-actions">
+              <button
+                className="action-btn edit-btn"
+                onClick={() => startEditingTitle(meeting.title, meeting.id)}
+              >
+                <Edit3 className="btn-icon" />
+                Edit Title
+              </button>
+              <button
+                className="action-btn delete-btn"
+                onClick={() => {
+                  if (confirm('Are you sure you want to delete this meeting?')) {
+                    deleteMeeting(meeting.id)
+                    setActiveTab('history')
+                  }
+                }}
+              >
+                <Trash2 className="btn-icon" />
+                Delete Meeting
+              </button>
             </div>
           </div>
         </div>
