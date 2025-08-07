@@ -254,7 +254,7 @@ function VoiceManager({ isOpen, onClose, onVoiceProfileSelected, currentVoicePro
       <div className="voice-manager-modal">
         <div className="voice-manager-header">
           <h2>🎙️ Voice Profile Manager</h2>
-          <button className="close-btn" onClick={onClose}>
+          <button className="voice-manager-close close-btn" onClick={onClose}>
             <X className="btn-icon" />
           </button>
         </div>

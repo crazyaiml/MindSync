@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Upload, Loader2, FileAudio, CheckCircle, Mic, Square, Play, Pause, History, Trash2, Edit3, Check, X, Volume2, VolumeX } from 'lucide-react'
+import { Upload, Loader2, FileAudio, CheckCircle, Mic, Square, Play, Pause, History, Trash2, Edit3, Check, X, Volume2, VolumeX, Home, Bot, Settings, MessageCircle, User, Plus, FileText, Menu } from 'lucide-react'
 import axios from 'axios'
 import PronunciationManager from './components/PronunciationManager'
 import ChatInterface from './components/ChatInterface'
@@ -10,17 +10,24 @@ import './App.css'
 interface MeetingSummary {
   id: string
   title: string
-  transcript: string
-  summary: string
-  key_points: string[]
-  action_items: string[]
+  description?: string
+  transcript?: string
+  summary?: string
+  key_points?: string[]
+  action_items?: string[]
   created_at: string
+  updated_at?: string
   file_name?: string
   duration?: number
   language?: string
+  status: 'draft' | 'recording' | 'processing' | 'completed'
 }
 
 function App() {
+  // Navigation state
+  const [activeTab, setActiveTab] = useState('standard')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isTranscribing, setIsTranscribing] = useState(false)
@@ -52,6 +59,18 @@ function App() {
   
   // TTS Test Page state
   const [showTTSTestPage, setShowTTSTestPage] = useState(false)
+  
+  // Empty meeting creation state
+  const [showCreateMeetingModal, setShowCreateMeetingModal] = useState(false)
+  const [newMeetingTitle, setNewMeetingTitle] = useState('')
+  const [newMeetingDescription, setNewMeetingDescription] = useState('')
+  const [isCreatingMeeting, setIsCreatingMeeting] = useState(false)
+  
+  // Transcript input state
+  const [showTranscriptModal, setShowTranscriptModal] = useState(false)
+  const [transcriptInput, setTranscriptInput] = useState('')
+  const [selectedMeetingForTranscript, setSelectedMeetingForTranscript] = useState<string | null>(null)
+  const [isAddingTranscript, setIsAddingTranscript] = useState(false)
   
   // Real-time assistant state
   const [isRealTimeMode, setIsRealTimeMode] = useState(false)
@@ -1036,6 +1055,152 @@ function App() {
     setShowHistory(false)
   }
 
+  // Create empty meeting
+  const createEmptyMeeting = async () => {
+    if (!newMeetingTitle.trim()) {
+      setError('Meeting title is required')
+      return
+    }
+
+    setIsCreatingMeeting(true)
+    setError('')
+    
+    try {
+      const response = await axios.post('http://127.0.0.1:8000/api/meetings/empty', {
+        title: newMeetingTitle.trim(),
+        description: newMeetingDescription.trim() || undefined
+      })
+      
+      const newMeeting = response.data
+      setMeetingsHistory(prev => [newMeeting, ...prev])
+      setMeetingSummary(newMeeting)
+      
+      // Reset form
+      setNewMeetingTitle('')
+      setNewMeetingDescription('')
+      setShowCreateMeetingModal(false)
+      
+    } catch (err: any) {
+      console.error('Error creating empty meeting:', err)
+      setError(err.response?.data?.detail || 'Failed to create meeting')
+    } finally {
+      setIsCreatingMeeting(false)
+    }
+  }
+
+  // Add transcript to existing meeting
+  const addTranscriptToMeeting = async () => {
+    if (!selectedMeetingForTranscript || !transcriptInput.trim()) {
+      setError('Please select a meeting and enter transcript text')
+      return
+    }
+
+    setIsAddingTranscript(true)
+    setError('')
+    
+    try {
+      const response = await axios.post(
+        `http://127.0.0.1:8000/api/meetings/${selectedMeetingForTranscript}/add-transcript`,
+        {
+          title: '', // Not used since we're updating existing meeting
+          transcription: transcriptInput.trim(),
+          description: '',
+          file_name: `transcript_${Date.now()}.txt`,
+          duration: null,
+          language: 'en'
+        }
+      )
+      
+      const updatedMeeting = response.data
+      
+      // Update meetings history
+      setMeetingsHistory(prev => 
+        prev.map(meeting => 
+          meeting.id === selectedMeetingForTranscript ? updatedMeeting : meeting
+        )
+      )
+      
+      // Update current meeting if it's the one being viewed
+      if (meetingSummary && meetingSummary.id === selectedMeetingForTranscript) {
+        setMeetingSummary(updatedMeeting)
+      }
+      
+      // Reset form
+      setTranscriptInput('')
+      setSelectedMeetingForTranscript(null)
+      setShowTranscriptModal(false)
+      
+    } catch (err: any) {
+      console.error('Error adding transcript to meeting:', err)
+      setError(err.response?.data?.detail || 'Failed to add transcript to meeting')
+    } finally {
+      setIsAddingTranscript(false)
+    }
+  }
+
+  // Start recording for existing meeting
+  const startMeetingRecording = async (meetingId: string) => {
+    try {
+      const response = await axios.post(`http://127.0.0.1:8000/api/meetings/${meetingId}/start-recording`)
+      const updatedMeeting = response.data
+      
+      // Update meetings history
+      setMeetingsHistory(prev => 
+        prev.map(meeting => 
+          meeting.id === meetingId ? updatedMeeting : meeting
+        )
+      )
+      
+      // Update current meeting if it's the one being viewed
+      if (meetingSummary && meetingSummary.id === meetingId) {
+        setMeetingSummary(updatedMeeting)
+      }
+      
+    } catch (err: any) {
+      console.error('Error starting recording:', err)
+      setError(err.response?.data?.detail || 'Failed to start recording')
+    }
+  }
+
+  // Stop recording for existing meeting
+  const stopMeetingRecording = async (meetingId: string, audioFile?: File) => {
+    try {
+      let audioFilePath = undefined
+      
+      // If audio file provided, upload it first
+      if (audioFile) {
+        const formData = new FormData()
+        formData.append('file', audioFile)
+        
+        const uploadResponse = await axios.post('http://127.0.0.1:8000/api/upload-audio', formData)
+        audioFilePath = uploadResponse.data.file_path
+      }
+      
+      const response = await axios.post(`http://127.0.0.1:8000/api/meetings/${meetingId}/stop-recording`, {
+        meeting_id: meetingId,
+        audio_file_path: audioFilePath
+      })
+      
+      const updatedMeeting = response.data
+      
+      // Update meetings history
+      setMeetingsHistory(prev => 
+        prev.map(meeting => 
+          meeting.id === meetingId ? updatedMeeting : meeting
+        )
+      )
+      
+      // Update current meeting if it's the one being viewed
+      if (meetingSummary && meetingSummary.id === meetingId) {
+        setMeetingSummary(updatedMeeting)
+      }
+      
+    } catch (err: any) {
+      console.error('Error stopping recording:', err)
+      setError(err.response?.data?.detail || 'Failed to stop recording')
+    }
+  }
+
   const validateAudioFile = (file: File): boolean => {
     // Check if it's an audio file by type or extension
     const audioTypes = ['audio/', 'video/']
@@ -1260,245 +1425,244 @@ function App() {
 
   const isProcessing = isUploading || isTranscribing || isSummarizing
 
-  return (
-    <div className="app">
-      <header className="app-header">
-        <div className="header-content">
-          <div className="header-text">
-            <h1>MindSync Meeting Summarizer</h1>
-            <p>Upload an audio file to get a comprehensive meeting summary</p>
+  const renderMainContent = () => {
+    if (activeTab === 'history') {
+      return (
+        <div className="history-section">
+          <div className="history-header">
+            <h2>📚 Meeting History</h2>
+            <button className="new-meeting-btn" onClick={() => {
+              setActiveTab('standard')
+            }}>
+              New Meeting
+            </button>
           </div>
-          <button 
-            className="history-btn" 
-            onClick={() => {
-              setShowHistory(!showHistory)
-              if (!showHistory) {
-                fetchMeetingsHistory()
-              }
-            }}
-          >
-            <History className="btn-icon" />
-            {showHistory ? 'Hide History' : 'View History'}
-          </button>
           
-          {/* Temporary test button */}
-          <button 
-            className="history-btn" 
-            onClick={testAudioPlayback}
-            style={{ marginLeft: '10px', backgroundColor: '#e74c3c' }}
-          >
-            🔊 Test Audio
-          </button>
-        </div>
-      </header>
-
-      <main className="app-main">
-        {showHistory ? (
-          <div className="history-section">
-            <div className="history-header">
-              <h2>📚 Meeting History</h2>
-              <button className="new-meeting-btn" onClick={() => setShowHistory(false)}>
-                New Meeting
-              </button>
+          {isLoadingHistory ? (
+            <div className="loading">
+              <Loader2 className="spinner" />
+              <p>Loading meetings...</p>
             </div>
-            
-            {isLoadingHistory ? (
-              <div className="loading">
-                <Loader2 className="spinner" />
-                <p>Loading meetings...</p>
-              </div>
-            ) : meetingsHistory.length === 0 ? (
-              <div className="empty-history">
-                <p>No meetings found. Create your first meeting!</p>
-              </div>
-            ) : (
-              <div className="meetings-grid">
-                {isEditingTitle && (
-                  <div className="edit-modal-overlay">
-                    <div className="edit-modal">
-                      <h3>Edit Meeting Name</h3>
-                      <input
-                        type="text"
-                        value={editedTitle}
-                        onChange={(e) => setEditedTitle(e.target.value)}
-                        className="title-edit-input"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && editingMeetingId) {
+          ) : meetingsHistory.length === 0 ? (
+            <div className="empty-history">
+              <p>No meetings found. Create your first meeting!</p>
+            </div>
+          ) : (
+            <div className="meetings-grid">
+              {isEditingTitle && (
+                <div className="edit-modal-overlay">
+                  <div className="edit-modal">
+                    <h3>Edit Meeting Name</h3>
+                    <input
+                      type="text"
+                      value={editedTitle}
+                      onChange={(e) => setEditedTitle(e.target.value)}
+                      className="title-edit-input"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && editingMeetingId) {
+                          updateMeetingTitle(editingMeetingId, editedTitle)
+                        } else if (e.key === 'Escape') {
+                          cancelEditingTitle()
+                        }
+                      }}
+                    />
+                    <div className="edit-modal-actions">
+                      <button 
+                        className="save-btn"
+                        onClick={() => {
+                          if (editingMeetingId) {
                             updateMeetingTitle(editingMeetingId, editedTitle)
-                          } else if (e.key === 'Escape') {
-                            cancelEditingTitle()
                           }
                         }}
-                      />
-                      <div className="edit-modal-actions">
-                        <button 
-                          className="save-btn"
-                          onClick={() => {
-                            if (editingMeetingId) {
-                              updateMeetingTitle(editingMeetingId, editedTitle)
-                            }
-                          }}
-                        >
-                          <Check className="btn-icon-small" />
-                          Save
-                        </button>
-                        <button 
-                          className="cancel-btn"
-                          onClick={cancelEditingTitle}
-                        >
-                          <X className="btn-icon-small" />
-                          Cancel
-                        </button>
-                      </div>
+                      >
+                        <Check className="btn-icon" />
+                        Save
+                      </button>
+                      <button 
+                        className="cancel-btn"
+                        onClick={cancelEditingTitle}
+                      >
+                        <X className="btn-icon" />
+                        Cancel
+                      </button>
                     </div>
                   </div>
-                )}
-                {meetingsHistory.map((meeting) => (
-                  <div key={meeting.id} className="meeting-card">
-                    <div className="meeting-card-header">
-                      <h3>{meeting.title}</h3>
-                      <div className="meeting-actions">
-                        <button 
-                          className="edit-btn"
-                          onClick={() => startEditingTitle(meeting.title, meeting.id)}
-                          title="Edit Meeting Name"
-                        >
-                          <Edit3 className="btn-icon-small" />
-                        </button>
-                        <button 
-                          className="view-btn"
-                          onClick={() => viewMeeting(meeting)}
-                          title="View Meeting"
-                        >
-                          View
-                        </button>
-                        <button 
-                          className="delete-btn"
-                          onClick={() => deleteMeeting(meeting.id)}
-                          title="Delete Meeting"
-                        >
-                          <Trash2 className="btn-icon-small" />
-                        </button>
+                </div>
+              )}
+              
+              {meetingsHistory.map((meeting) => (
+                <div key={meeting.id} className="meeting-card">
+                  <div className="meeting-card-header">
+                    <div className="meeting-info">
+                      <h3 
+                        className="meeting-title" 
+                        title={meeting.title}
+                        onClick={() => startEditingTitle(meeting.id, meeting.title)}
+                      >
+                        {meeting.title}
+                        <Edit3 className="edit-icon" />
+                      </h3>
+                      <div className="meeting-meta">
+                        <span className="meeting-date">
+                          {new Date(meeting.created_at).toLocaleString()}
+                        </span>
+                        <span className={`meeting-status status-${meeting.status}`}>
+                          {meeting.status}
+                        </span>
                       </div>
+                      {meeting.description && (
+                        <p className="meeting-description">{meeting.description}</p>
+                      )}
                     </div>
-                    <p className="meeting-date">
-                      {new Date(meeting.created_at).toLocaleDateString()} at{' '}
-                      {new Date(meeting.created_at).toLocaleTimeString()}
-                    </p>
-                    <p className="meeting-summary-preview">
-                      {meeting.summary ? meeting.summary.substring(0, 150) + '...' : 'No summary available'}
-                    </p>
-                    <div className="meeting-stats">
-                      <span>{meeting.key_points?.length || 0} key points</span>
-                      <span>{meeting.action_items?.length || 0} action items</span>
+                    <div className="meeting-actions">
+                      {meeting.status === 'draft' && (
+                        <>
+                          <button 
+                            className="action-btn start-recording-btn"
+                            onClick={() => startMeetingRecording(meeting.id)}
+                            title="Start Recording"
+                          >
+                            <Mic />
+                          </button>
+                          <button 
+                            className="action-btn add-transcript-btn"
+                            onClick={() => {
+                              setSelectedMeetingForTranscript(meeting.id)
+                              setShowTranscriptModal(true)
+                            }}
+                            title="Add Transcript"
+                          >
+                            <FileText />
+                          </button>
+                        </>
+                      )}
+                      {meeting.status === 'recording' && (
+                        <button 
+                          className="action-btn stop-recording-btn"
+                          onClick={() => stopMeetingRecording(meeting.id)}
+                          title="Stop Recording"
+                        >
+                          <Square />
+                        </button>
+                      )}
+                      <button 
+                        className="action-btn delete-btn"
+                        onClick={() => deleteMeeting(meeting.id)}
+                        title="Delete Meeting"
+                      >
+                        <Trash2 />
+                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                  
+                  {meeting.transcript && (
+                    <div className="meeting-transcript">
+                      <h4>Transcript</h4>
+                      <p>{meeting.transcript.substring(0, 200)}...</p>
+                    </div>
+                  )}
+                  
+                  {meeting.summary && (
+                    <div className="meeting-summary">
+                      <h4>Summary</h4>
+                      <p>{meeting.summary}</p>
+                    </div>
+                  )}
+                  
+                  {meeting.key_points && meeting.key_points.length > 0 && (
+                    <div className="meeting-key-points">
+                      <h4>Key Points</h4>
+                      <ul>
+                        {meeting.key_points.slice(0, 3).map((point, index) => (
+                          <li key={index}>{point}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  {meeting.action_items && meeting.action_items.length > 0 && (
+                    <div className="meeting-action-items">
+                      <h4>Action Items</h4>
+                      <ul>
+                        {meeting.action_items.slice(0, 3).map((item, index) => (
+                          <li key={index}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  
+                  <div className="meeting-details">
+                    {meeting.duration && (
+                      <span className="detail-item">
+                        Duration: {Math.round(meeting.duration)}s
+                      </span>
+                    )}
+                    {meeting.language && (
+                      <span className="detail-item">
+                        Language: {meeting.language}
+                      </span>
+                    )}
+                    {meeting.file_name && (
+                      <span className="detail-item">
+                        File: {meeting.file_name}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    if (activeTab === 'ai-assistant') {
+      return (
+        <div className="mode-section">
+          <div className="mode-header">
+            <h2>🤖 AI Assistant Mode</h2>
+            <p>Real-time transcription with AI suggestions</p>
           </div>
-        ) : !meetingSummary ? (
-          <div className="upload-section">
-            {/* Real-time Assistant Mode Toggle */}
-            <div className="mode-selector">
-              <button 
-                className={`mode-btn ${!isRealTimeMode ? 'active' : ''}`}
-                onClick={() => setIsRealTimeMode(false)}
-              >
-                📁 Standard Mode
-              </button>
-              <button 
-                className={`mode-btn ${isRealTimeMode ? 'active' : ''}`}
-                onClick={() => setIsRealTimeMode(true)}
-              >
-                🤖 AI Assistant Mode
-              </button>
-              <button 
-                className="mode-btn settings-btn"
-                onClick={() => setShowPronunciationManager(true)}
-                title="Pronunciation Settings"
-              >
-                ⚙️ Settings
-              </button>
-              <button 
-                className="mode-btn chat-btn"
-                onClick={() => setShowChatInterface(true)}
-                title="Ask About Meetings"
-              >
-                💬 Ask Me
-              </button>
-              <button 
-                className="mode-btn voice-btn"
-                onClick={() => setShowVoiceManager(true)}
-                title="Manage Voice Profiles"
-              >
-                🎙️ Voice Profiles
-              </button>
-              <button 
-                className="mode-btn tts-test-btn"
-                onClick={() => setShowTTSTestPage(true)}
-                title="Test Text-to-Speech"
-              >
-                🔊 TTS Test
-              </button>
+          
+          <div className="real-time-section">
+            <div className="real-time-controls">
+              {!isRealTimeMode || !isRecording ? (
+                <button className="record-btn real-time" onClick={startRealTimeRecording}>
+                  <Mic className="btn-icon" />
+                  Start AI Assistant
+                </button>
+              ) : (
+                <div className="recording-controls">
+                  <div className="recording-status">
+                    <span className="recording-indicator"></span>
+                    AI Assistant Active
+                  </div>
+                  <button className="stop-btn" onClick={stopRealTimeRecording}>
+                    <Square className="btn-icon" />
+                    Stop
+                  </button>
+                </div>
+              )}
             </div>
 
-            {isRealTimeMode ? (
-              /* Real-time Assistant Mode */
-              <div className="real-time-assistant">
-                <h3>🤖 AI Meeting Assistant</h3>
-                <p>Get real-time suggestions based on your conversation history</p>
-                
-                {!isRecording ? (
-                  <button className="record-btn real-time" onClick={startRealTimeRecording}>
-                    <Mic className="btn-icon" />
-                    Start AI-Assisted Recording
-                  </button>
-                ) : (
-                  <div className="real-time-controls">
-                    <div className="recording-status">
-                      <div className="recording-indicator"></div>
-                      <span>AI Assistant Active: {formatTime(recordingTime)}</span>
-                    </div>
-                    <button className="stop-btn" onClick={stopRealTimeRecording}>
-                      <Square className="btn-icon" />
-                      Stop
-                    </button>
+            {isRealTimeMode && (
+              <div className="real-time-content">
+                <div className="real-time-transcript">
+                  <h3>Live Transcript</h3>
+                  <div className="transcript-content">
+                    {realTimeTranscript || "Start speaking to see real-time transcription..."}
                   </div>
-                )}
-                
-                {/* Real-time Transcript */}
-                {realTimeTranscript && (
-                  <div className="real-time-transcript">
-                    <h4>📝 Live Transcript</h4>
-                    <div className="transcript-content">
-                      {realTimeTranscript}
-                    </div>
-                  </div>
-                )}
-                
-                {/* AI Suggestions */}
+                </div>
+
                 {suggestions.length > 0 && (
                   <div className="ai-suggestions">
-                    <h4>💡 AI Suggestions</h4>
+                    <h3>AI Suggestions</h3>
                     <div className="suggestions-list">
-                      {suggestions.slice(-5).map((suggestion, index) => (
-                        <div key={index} className={`suggestion-card ${suggestion.type}`}>
-                          <div className="suggestion-header">
-                            <span className="suggestion-type">
-                              {suggestion.type === 'reminder' ? '⏰' : 
-                               suggestion.type === 'context' ? '🔗' : 
-                               suggestion.type === 'action' ? '✅' : '❓'}
-                              {suggestion.type.toUpperCase()}
-                            </span>
-                          </div>
-                          <p>{suggestion.suggestion}</p>
-                          {suggestion.source_meetings && (
-                            <div className="suggestion-source">
-                              Related to: {suggestion.source_meetings.map((m: any) => m.title).join(', ')}
-                            </div>
-                          )}
+                      {suggestions.map((suggestion, index) => (
+                        <div key={index} className="suggestion-item">
+                          <div className="suggestion-type">{suggestion.type}</div>
+                          <div className="suggestion-content">{suggestion.content}</div>
                         </div>
                       ))}
                     </div>
@@ -1508,322 +1672,621 @@ function App() {
                   </div>
                 )}
               </div>
-            ) : (
-              /* Standard Recording Mode */
-              <>
-            {/* Recording Section */}
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    if (activeTab === 'voice-profile') {
+      return (
+        <div className="mode-section">
+          <div className="mode-header">
+            <h2>👤 Voice Profile Management</h2>
+            <p>Manage your voice profiles for text-to-speech</p>
+          </div>
+          <VoiceManager 
+            isOpen={true}
+            onClose={() => setActiveTab('standard')}
+            onVoiceProfileSelected={(voiceId: string) => {
+              setCurrentVoiceProfile(voiceId)
+              localStorage.setItem('currentVoiceProfile', voiceId)
+            }}
+            currentVoiceProfile={currentVoiceProfile}
+          />
+        </div>
+      )
+    }
+
+    if (activeTab === 'tts-test') {
+      return (
+        <div className="mode-section">
+          <TTSTestPage 
+            isOpen={true}
+            onClose={() => setActiveTab('standard')}
+          />
+        </div>
+      )
+    }
+
+    if (activeTab === 'ask-me') {
+      return (
+        <div className="mode-section">
+          <div className="mode-header">
+            <h2>💬 Ask Me</h2>
+            <p>Chat with AI about your meetings</p>
+          </div>
+          <ChatInterface 
+            isOpen={true}
+            onClose={() => setActiveTab('standard')}
+          />
+        </div>
+      )
+    }
+
+    if (activeTab === 'settings') {
+      return (
+        <div className="mode-section">
+          <div className="mode-header">
+            <h2>⚙️ Settings</h2>
+            <p>Configure pronunciation and other settings</p>
+          </div>
+          <PronunciationManager 
+            isOpen={true} 
+            onClose={() => setActiveTab('standard')} 
+          />
+        </div>
+      )
+    }
+
+    if (activeTab === 'new-meeting') {
+      return (
+        <div className="mode-section">
+          <div className="mode-header">
+            <h2>➕ Create New Meeting</h2>
+            <p>Start a new meeting session</p>
+          </div>
+          <div className="new-meeting-options">
+            <button 
+              className="option-btn record-option"
+              onClick={() => {
+                setActiveTab('standard')
+                startRecording()
+              }}
+            >
+              <Mic className="option-icon" />
+              <div>
+                <h3>Start Recording</h3>
+                <p>Begin recording a new meeting</p>
+              </div>
+            </button>
+            <button 
+              className="option-btn ai-option"
+              onClick={() => {
+                setActiveTab('ai-assistant')
+                startRealTimeRecording()
+              }}
+            >
+              <Bot className="option-icon" />
+              <div>
+                <h3>AI Assistant Mode</h3>
+                <p>Real-time transcription with AI suggestions</p>
+              </div>
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    if (activeTab === 'add-transcript') {
+      return (
+        <div className="mode-section">
+          <div className="mode-header">
+            <h2>📄 Add Transcript</h2>
+            <p>Upload an existing transcript or audio file</p>
+          </div>
+          <div className="upload-options">
+            <div className="upload-area">
+              <div className="upload-content">
+                <Upload className="upload-icon" />
+                <h3>Upload Audio File</h3>
+                <p>Drag and drop an audio file or click to browse</p>
+                <input
+                  type="file"
+                  accept="audio/*"
+                  onChange={handleFileSelect}
+                  className="file-input"
+                  id="audio-upload"
+                />
+                <label htmlFor="audio-upload" className="upload-btn">
+                  <Upload />
+                  Choose File
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    // Standard Mode (default)
+    return (
+      <div className="mode-section">
+        <div className="mode-header">
+          <h2>📁 Standard Mode</h2>
+          <p>Upload audio files for meeting summarization</p>
+        </div>
+        
+        <div className="upload-section">
+          {!isRecording && !recordedBlob && (
             <div className="recording-section">
               <h3>🎙️ Record Audio</h3>
-              
-              {!isRecording && !recordedBlob && (
+              <div className="recording-controls">
                 <button className="record-btn" onClick={startRecording}>
                   <Mic className="btn-icon" />
                   Start Recording
                 </button>
-              )}
-              
-              {isRecording && (
+              </div>
+            </div>
+          )}
+
+          {isRecording && (
+            <div className="recording-section active">
+              <h3>🎙️ Recording in Progress</h3>
+              <div className="recording-status">
+                <div className="recording-indicator"></div>
+                <span className="recording-time">{formatTime(recordingTime)}</span>
                 <div className="recording-controls">
-                  <div className="recording-status">
-                    <div className="recording-indicator"></div>
-                    <span>Recording: {formatTime(recordingTime)}</span>
-                  </div>
-                  <div className="recording-buttons">
-                    <button className="pause-btn" onClick={pauseRecording}>
-                      {isPaused ? <Play className="btn-icon" /> : <Pause className="btn-icon" />}
-                      {isPaused ? 'Resume' : 'Pause'}
-                    </button>
-                    <button className="stop-btn" onClick={stopRecording}>
-                      <Square className="btn-icon" />
-                      Stop
-                    </button>
-                  </div>
+                  <button className="pause-btn" onClick={pauseRecording}>
+                    <Pause className="btn-icon" />
+                  </button>
+                  <button className="stop-btn" onClick={stopRecording}>
+                    <Square className="btn-icon" />
+                    Stop
+                  </button>
                 </div>
-              )}
-              
-              {recordedBlob && (
-                <div className="recorded-audio">
-                  <div className="recording-info">
-                    <span>Recording complete: {formatTime(recordingTime)}</span>
-                  </div>
-                  <div className="playback-controls">
-                    <button className="play-btn" onClick={playRecording}>
-                      {isPlaying ? <Pause className="btn-icon" /> : <Play className="btn-icon" />}
-                      {isPlaying ? 'Pause' : 'Play'}
-                    </button>
-                    <button className="clear-btn" onClick={clearRecording}>
-                      Clear
-                    </button>
-                  </div>
-                  
-                  {!isProcessing && (
-                    <button className="process-btn" onClick={processRecordedAudio}>
-                      <Upload className="btn-icon" />
-                      Process Recording
-                    </button>
-                  )}
+              </div>
+            </div>
+          )}
+
+          {recordedBlob && (
+            <div className="recorded-audio-section">
+              <h3>🎵 Recorded Audio</h3>
+              <div className="audio-controls">
+                <div className="audio-info">
+                  <span>Duration: {formatTime(recordingTime)}</span>
                 </div>
-              )}
+                <div className="audio-actions">
+                  <button className="play-btn" onClick={playRecording}>
+                    <Play className="btn-icon" />
+                  </button>
+                  <button className="clear-btn" onClick={clearRecording}>
+                    <Trash2 className="btn-icon" />
+                  </button>
+                </div>
+              </div>
+              <div className="process-section">
+                <button className="process-btn" onClick={processRecordedAudio}>
+                  Process Recording
+                </button>
+              </div>
             </div>
-            
-            <div className="separator">
-              <span>OR</span>
-            </div>
-            
-            {/* File Upload Section */}
-            <div className="file-upload-section">
-              <h3>📁 Upload Audio File</h3>
-            <div 
-              className={`upload-area ${isDragOver ? 'drag-over' : ''}`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
+          )}
+
+          <div className="upload-divider">
+            <span>OR</span>
+          </div>
+
+          <div 
+            className={`upload-area ${isDragOver ? 'drag-over' : ''}`}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+          >
+            <div className="upload-content">
+              <FileAudio className="upload-icon" />
+              <h3>Upload Audio File</h3>
+              <p>Drag and drop your audio file here, or click to select</p>
               <input
                 type="file"
-                id="audio-file"
-                accept="audio/*,.m4a,.mp3,.wav,.aac,.ogg,.flac,.aiff,.wma"
+                accept="audio/*,.webm"
                 onChange={handleFileSelect}
                 className="file-input"
-                disabled={isProcessing}
+                id="file-input"
               />
-              <label htmlFor="audio-file" className={`file-label ${isProcessing ? 'disabled' : ''}`}>
-                <FileAudio className="upload-icon" />
-                <span>Choose Audio File</span>
-                <span className="drag-text">or drag and drop M4A, MP3, WAV files here</span>
+              <label htmlFor="file-input" className="upload-btn">
+                <Upload className="btn-icon" />
+                Choose File
               </label>
             </div>
+          </div>
 
-            {selectedFile && (
-              <div className="file-info">
-                <p><strong>Selected:</strong> {selectedFile.name}</p>
-                <p><strong>Size:</strong> {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+          {selectedFile && (
+            <div className="file-info">
+              <FileAudio className="file-icon" />
+              <div className="file-details">
+                <p className="file-name">{selectedFile.name}</p>
+                <p className="file-size">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
               </div>
-            )}
-
-            {selectedFile && !isProcessing && (
               <button className="process-btn" onClick={processAudioFile}>
-                <Upload className="btn-icon" />
                 Process Audio
               </button>
-            )}
-
-            {isProcessing && (
-              <div className="processing">
-                <Loader2 className="spinner" />
-                <p>{getCurrentStep()}</p>
-              </div>
-            )}
-
-            {error && (
-              <div className="error">
-                <p>{error}</p>
-              </div>
-            )}
             </div>
-            </>
-            )}
-          </div>
-        ) : (
-          <div className="results-section">
-            <div className="results-header">
-              <CheckCircle className="success-icon" />
-              <h2>Meeting Summary Complete</h2>
-              <button className="new-meeting-btn" onClick={resetApp}>
-                Process New Meeting
-              </button>
-            </div>
+          )}
 
-            <div className="summary-content">
-              <div className="summary-card">
-                <div className="summary-header">
+          {(isUploading || isTranscribing || isSummarizing) && (
+            <div className="processing">
+              <Loader2 className="spinner" />
+              <div className="processing-text">
+                {isUploading && <p>Uploading file...</p>}
+                {isTranscribing && <p>Transcribing audio...</p>}
+                {isSummarizing && <p>Generating summary...</p>}
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="error-message">
+              <p>{error}</p>
+            </div>
+          )}
+
+          {meetingSummary && (
+            <div className="summary-section">
+              <div className="summary-header">
+                <CheckCircle className="success-icon" />
+                <h2>Meeting Summary Complete!</h2>
+              </div>
+              
+              <div className="summary-content">
+                <div className="summary-item">
                   <h3>📝 Summary</h3>
-                  <button 
-                    className={`speak-btn ${isSpeaking ? 'speaking' : ''}`}
-                    onClick={() => isSpeaking ? stopSpeaking() : speakTextIntelligent(meetingSummary.summary, 'summary')}
-                    title={
-                      isGeneratingVoice 
-                        ? 'Generating speech with voice cloning...' 
-                        : streamingProgress
-                          ? `Playing chunk ${streamingProgress.current}/${streamingProgress.total}`
-                          : isSpeaking 
-                            ? 'Stop speaking' 
-                            : 'Listen to summary'
-                    }
-                    disabled={isGeneratingVoice}
-                  >
-                    {isGeneratingVoice ? (
-                      <Loader2 className="btn-icon-small animate-spin" />
-                    ) : isSpeaking ? (
-                      <VolumeX className="btn-icon-small" />
-                    ) : (
-                      <Volume2 className="btn-icon-small" />
-                    )}
-                  </button>
+                  <p>{meetingSummary.summary}</p>
                 </div>
-                <p>{meetingSummary.summary}</p>
-              </div>
-
-              <div className="summary-card">
-                <div className="summary-header">
-                  <h3>🔑 Key Points</h3>
-                  <button 
-                    className={`speak-btn ${isSpeaking ? 'speaking' : ''}`}
-                    onClick={() => isSpeaking ? stopSpeaking() : speakTextIntelligent(meetingSummary.key_points.join('. '), 'keypoints')}
-                    title={
-                      isGeneratingVoice 
-                        ? 'Generating speech with voice cloning...' 
-                        : streamingProgress
-                          ? `Playing chunk ${streamingProgress.current}/${streamingProgress.total}`
-                          : isSpeaking 
-                            ? 'Stop speaking' 
-                            : 'Listen to key points'
-                    }
-                    disabled={isGeneratingVoice}
-                  >
-                    {isGeneratingVoice ? (
-                      <Loader2 className="btn-icon-small animate-spin" />
-                    ) : isSpeaking ? (
-                      <VolumeX className="btn-icon-small" />
-                    ) : (
-                      <Volume2 className="btn-icon-small" />
-                    )}
-                  </button>
-                </div>
-                <ul>
-                  {meetingSummary.key_points.map((point, index) => (
-                    <li key={index}>{point}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="summary-card">
-                <div className="summary-header">
-                  <h3>✅ Action Items</h3>
-                  <button 
-                    className={`speak-btn ${isSpeaking ? 'speaking' : ''}`}
-                    onClick={() => isSpeaking ? stopSpeaking() : speakTextIntelligent(meetingSummary.action_items.join('. '), 'actionitems')}
-                    title={
-                      isGeneratingVoice 
-                        ? 'Generating speech with voice cloning...' 
-                        : streamingProgress
-                          ? `Playing chunk ${streamingProgress.current}/${streamingProgress.total}`
-                          : isSpeaking 
-                            ? 'Stop speaking' 
-                            : 'Listen to action items'
-                    }
-                    disabled={isGeneratingVoice}
-                  >
-                    {isGeneratingVoice ? (
-                      <Loader2 className="btn-icon-small animate-spin" />
-                    ) : isSpeaking ? (
-                      <VolumeX className="btn-icon-small" />
-                    ) : (
-                      <Volume2 className="btn-icon-small" />
-                    )}
-                  </button>
-                </div>
-                <ul>
-                  {meetingSummary.action_items.map((item, index) => (
-                    <li key={index}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="summary-card">
-                <h3>📄 Full Transcript</h3>
-                <div className="transcript-content">
-                  <p>{meetingSummary.transcript}</p>
-                </div>
-              </div>
-
-              {meetingSummary.file_name && (
-                <div className="summary-card">
-                  <h3>🎵 Audio Recording</h3>
-                  <div className="audio-section">
-                    <audio controls style={{ width: '100%' }}>
-                      <source src={`http://127.0.0.1:8000/api/audio/file/${meetingSummary.file_name}`} />
-                      Your browser does not support the audio element.
-                    </audio>
-                    <div className="audio-info">
-                      <p><strong>File:</strong> {meetingSummary.file_name}</p>
-                      {meetingSummary.duration && (
-                        <p><strong>Duration:</strong> {Math.round(meetingSummary.duration)} seconds</p>
-                      )}
-                      {meetingSummary.language && (
-                        <p><strong>Language:</strong> {meetingSummary.language}</p>
-                      )}
-                    </div>
+                
+                {meetingSummary.key_points && meetingSummary.key_points.length > 0 && (
+                  <div className="summary-item">
+                    <h3>🔍 Key Points</h3>
+                    <ul>
+                      {meetingSummary.key_points.map((point, index) => (
+                        <li key={index}>{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                {meetingSummary.action_items && meetingSummary.action_items.length > 0 && (
+                  <div className="summary-item">
+                    <h3>✅ Action Items</h3>
+                    <ul>
+                      {meetingSummary.action_items.map((item, index) => (
+                        <li key={index}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                
+                <div className="summary-meta">
+                  <div className="meta-item">
+                    <strong>Duration:</strong> {meetingSummary.duration}s
+                  </div>
+                  <div className="meta-item">
+                    <strong>Language:</strong> {meetingSummary.language}
+                  </div>
+                  <div className="meta-item">
+                    <strong>Created:</strong> {new Date(meetingSummary.created_at).toLocaleString()}
                   </div>
                 </div>
-              )}
-
-              <div className="meeting-info">
-                <div className="meeting-title-section">
-                  {isEditingTitle ? (
-                    <div className="title-edit-form">
-                      <input
-                        type="text"
-                        value={editedTitle}
-                        onChange={(e) => setEditedTitle(e.target.value)}
-                        className="title-edit-input"
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            updateMeetingTitle(meetingSummary.id, editedTitle)
-                          } else if (e.key === 'Escape') {
-                            cancelEditingTitle()
-                          }
-                        }}
-                      />
-                      <div className="title-edit-actions">
-                        <button 
-                          className="save-btn"
-                          onClick={() => updateMeetingTitle(meetingSummary.id, editedTitle)}
-                        >
-                          <Check className="btn-icon-small" />
-                        </button>
-                        <button 
-                          className="cancel-btn"
-                          onClick={cancelEditingTitle}
-                        >
-                          <X className="btn-icon-small" />
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="meeting-title-display">
-                      <strong>Meeting:</strong> {meetingSummary.title}
-                      <button 
-                        className="edit-title-btn"
-                        onClick={() => startEditingTitle(meetingSummary.title)}
-                        title="Edit Meeting Name"
-                      >
-                        <Edit3 className="btn-icon-small" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <p><strong>Created:</strong> {new Date(meetingSummary.created_at).toLocaleString()}</p>
+              </div>
+              
+              <div className="summary-actions">
+                <button className="new-meeting-btn" onClick={resetApp}>
+                  New Meeting
+                </button>
               </div>
             </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="app">
+      {/* Sidebar Navigation */}
+      <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+        <div className="sidebar-header">
+          <div className="logo">
+            <h2>MindSync</h2>
           </div>
-        )}
-      </main>
+          <button 
+            className="sidebar-toggle"
+            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          >
+            <Menu />
+          </button>
+        </div>
+
+        <nav className="sidebar-nav">
+          <div className="nav-section">
+            <h3>Main</h3>
+            <ul>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'standard' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('standard')}
+                >
+                  <Home className="nav-icon" />
+                  <span>Standard Mode</span>
+                </button>
+              </li>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'ai-assistant' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('ai-assistant')}
+                >
+                  <Bot className="nav-icon" />
+                  <span>AI Assistant</span>
+                </button>
+              </li>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'history' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('history')
+                    fetchMeetingsHistory()
+                  }}
+                >
+                  <History className="nav-icon" />
+                  <span>Meeting History</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div className="nav-section">
+            <h3>Actions</h3>
+            <ul>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'new-meeting' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('new-meeting')
+                  }}
+                >
+                  <Plus className="nav-icon" />
+                  <span>New Meeting</span>
+                </button>
+              </li>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'add-transcript' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('add-transcript')
+                  }}
+                >
+                  <FileText className="nav-icon" />
+                  <span>Add Transcript</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <div className="nav-section">
+            <h3>Tools</h3>
+            <ul>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'ask-me' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('ask-me')
+                  }}
+                >
+                  <MessageCircle className="nav-icon" />
+                  <span>Ask Me</span>
+                </button>
+              </li>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'voice-profile' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('voice-profile')
+                  }}
+                >
+                  <User className="nav-icon" />
+                  <span>Voice Profile</span>
+                </button>
+              </li>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'tts-test' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('tts-test')
+                  }}
+                >
+                  <Volume2 className="nav-icon" />
+                  <span>TTS Test</span>
+                </button>
+              </li>
+              <li>
+                <button 
+                  className={`nav-item ${activeTab === 'settings' ? 'active' : ''}`}
+                  onClick={() => {
+                    setActiveTab('settings')
+                  }}
+                >
+                  <Settings className="nav-icon" />
+                  <span>Settings</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </nav>
+      </aside>
+
+      {/* Main Content */}
+      <div className="main-layout">
+        {/* Header */}
+        <header className="app-header">
+          <div className="header-content">
+            <h1>🧠 MindSync Meeting Summarizer ✨</h1>
+            </div>
+          </header>
+        {/* Main Content Area */}
+        <main className="app-main">
+          {renderMainContent()}
+        </main>
+
+        {/* Footer */}
+        <footer className="app-footer">
+          <div className="footer-content">
+            <p>&copy; 2025 MindSync. All rights reserved.</p>
+            <div className="footer-links">
+              <span>Made with ❤️ for better meetings</span>
+            </div>
+          </div>
+        </footer>
+      </div>
+
+      {/* Modals */}
+      {showCreateMeetingModal && (
+        <div className="modal-overlay" onClick={() => setShowCreateMeetingModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Create New Meeting</h3>
+              <button 
+                className="close-btn"
+                onClick={() => setShowCreateMeetingModal(false)}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-content">
+              <div className="form-group">
+                <label htmlFor="meeting-title">Meeting Title *</label>
+                <input
+                  id="meeting-title"
+                  type="text"
+                  value={newMeetingTitle}
+                  onChange={(e) => setNewMeetingTitle(e.target.value)}
+                  placeholder="Enter meeting title"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="meeting-description">Description</label>
+                <textarea
+                  id="meeting-description"
+                  value={newMeetingDescription}
+                  onChange={(e) => setNewMeetingDescription(e.target.value)}
+                  placeholder="Optional meeting description"
+                  rows={3}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button 
+                className="cancel-btn"
+                onClick={() => setShowCreateMeetingModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="create-btn"
+                onClick={createEmptyMeeting}
+                disabled={isCreatingMeeting || !newMeetingTitle.trim()}
+              >
+                {isCreatingMeeting ? (
+                  <>
+                    <Loader2 className="spinner-small" />
+                    Creating...
+                  </>
+                ) : (
+                  'Create Meeting'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTranscriptModal && (
+        <div className="modal-overlay" onClick={() => setShowTranscriptModal(false)}>
+          <div className="modal large" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Add Transcript to Meeting</h3>
+              <button 
+                className="close-btn"
+                onClick={() => setShowTranscriptModal(false)}
+              >
+                <X />
+              </button>
+            </div>
+            <div className="modal-content">
+              {!selectedMeetingForTranscript && (
+                <div className="form-group">
+                  <label>Select Meeting</label>
+                  <select 
+                    value={selectedMeetingForTranscript || ''}
+                    onChange={(e) => setSelectedMeetingForTranscript(e.target.value)}
+                  >
+                    <option value="">Select a meeting...</option>
+                    {meetingsHistory
+                      .filter(m => m.status === 'draft' && !m.transcript)
+                      .map(meeting => (
+                        <option key={meeting.id} value={meeting.id}>
+                          {meeting.title}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+              <div className="form-group">
+                <label htmlFor="transcript-input">Transcript *</label>
+                <textarea
+                  id="transcript-input"
+                  value={transcriptInput}
+                  onChange={(e) => setTranscriptInput(e.target.value)}
+                  placeholder="Paste or type the meeting transcript here..."
+                  rows={10}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button 
+                className="cancel-btn"
+                onClick={() => setShowTranscriptModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="add-btn"
+                onClick={addTranscriptToMeeting}
+                disabled={isAddingTranscript || !transcriptInput.trim() || !selectedMeetingForTranscript}
+              >
+                {isAddingTranscript ? (
+                  <>
+                    <Loader2 className="spinner-small" />
+                    Adding...
+                  </>
+                ) : (
+                  'Add Transcript'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
-      {/* Pronunciation Manager Modal */}
       <PronunciationManager 
         isOpen={showPronunciationManager}
         onClose={() => setShowPronunciationManager(false)}
       />
       
-      {/* Chat Interface Modal */}
       <ChatInterface 
         isOpen={showChatInterface}
         onClose={() => setShowChatInterface(false)}
       />
       
-      {/* Voice Manager Modal */}
       <VoiceManager 
         isOpen={showVoiceManager}
         onClose={() => setShowVoiceManager(false)}
@@ -1831,7 +2294,6 @@ function App() {
         currentVoiceProfile={currentVoiceProfile}
       />
       
-      {/* TTS Test Page Modal */}
       <TTSTestPage 
         isOpen={showTTSTestPage}
         onClose={() => setShowTTSTestPage(false)}

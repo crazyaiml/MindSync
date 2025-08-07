@@ -22,14 +22,17 @@ class Meeting(Base):
     
     id = Column(String, primary_key=True, index=True)
     title = Column(String, nullable=False)
-    transcript = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    transcript = Column(Text, nullable=True)  # Allow null for empty meetings
     summary = Column(Text, nullable=True)
     key_points = Column(JSON, nullable=True)
     action_items = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=True)
     duration = Column(Float, nullable=True)
     language = Column(String, nullable=True)
     file_name = Column(String, nullable=True)
+    status = Column(String, default="draft", nullable=False)  # draft, recording, processing, completed
 
 class PronunciationCorrection(Base):
     __tablename__ = "pronunciation_corrections"
