@@ -104,10 +104,6 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ isOpen, onClose }) => {
     <div className="chat-modal">
       <div className="chat-modal-content">
         <div className="chat-header">
-          <div className="chat-title">
-            <h2>💬 Ask About Your Meetings</h2>
-            <p>Ask me anything about your recorded meetings!</p>
-          </div>
           <div className="chat-controls">
             {messages.length > 0 && (
               <button onClick={clearChat} className="chat-clear-btn">

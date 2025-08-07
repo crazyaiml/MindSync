@@ -22,7 +22,29 @@ MindSync 2.0 is an intelligent meeting assistant that provides real-time transcr
 - **REST API**: Comprehensive backend API with FastAPI
 - **Modern Frontend**: React with TypeScript and Vite
 
-## 📋 Prerequisites
+## � Screenshots
+
+### Main Interface
+![Homepage](docs/images/homepage.png)
+*Modern sidebar navigation with organized sections and clean interface*
+
+### AI Assistant Mode
+![AI Assistance Mode](docs/images/ai-assistance-mode.png)
+*Intelligent AI suggestions and responses during meetings*
+
+### Interactive Chat Interface
+![Ask Me Feature](docs/images/ask-me.png)
+*AI-powered conversation with context awareness*
+
+### Voice Cloning Technology
+![Voice Cloning](docs/images/voice-cloning.png)
+*Personalized voice profile management and creation*
+
+### TTS Testing & Voice Synthesis
+![Voice Clone Test](docs/images/voice-clone-test.png)
+*Real-time text-to-speech testing with custom voice profiles*
+
+## �📋 Prerequisites
 
 ### System Requirements
 - **Python**: 3.11+ (for backend)
